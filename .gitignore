@@ -1,0 +1,29 @@
+# Datasets (too large for GitHub)
+datasets/
+*.tar.gz
+
+# Virtual environments
+venv/
+env/
+*.pyc
+__pycache__/
+
+# Results
+results/
+*.json
+*.png
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Model checkpoints
+*.pth
+*.pt
+*.ckpt
