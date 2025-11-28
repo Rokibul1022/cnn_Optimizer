@@ -16,7 +16,7 @@ class ImageNetDataset(Dataset):
         self.labels = []
         
         # Load class folders (ImageNet has flat structure with class folders)
-        classes = sorted([d for d in os.listdir(self.root_dir) if os.path.isdir(os.path.join(self.root_dir, d)) and not d.startswith('.')])[:1000]
+        classes = sorted([d for d in os.listdir(self.root_dir) if os.path.isdir(os.path.join(self.root_dir, d)) and not d.startswith('.')])[:100]
         
         images_per_class = max(1, subset_size // len(classes))
         

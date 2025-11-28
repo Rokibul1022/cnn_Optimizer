@@ -5,11 +5,14 @@ import torchvision.models as models
 
 class MultiTaskMobileNetV3(nn.Module):
     """MobileNetV3-Large with classification and segmentation heads"""
-    def __init__(self, num_classes=1000, num_seg_classes=21):
+    def __init__(self, num_classes=100, num_seg_classes=21):
         super().__init__()
         
         # Pretrained MobileNetV3 encoder
-        mobilenet = models.mobilenet_v3_large(pretrained=True)
+        try:
+            mobilenet = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1)
+        except:
+            mobilenet = models.mobilenet_v3_large(pretrained=True)
         self.encoder = mobilenet.features  # Shared encoder
         
         # Classification head
@@ -65,11 +68,14 @@ class MultiTaskMobileNetV3(nn.Module):
 
 class MultiTaskResNet18(nn.Module):
     """ResNet-18 with classification and segmentation heads"""
-    def __init__(self, num_classes=1000, num_seg_classes=21):
+    def __init__(self, num_classes=100, num_seg_classes=21):
         super().__init__()
         
         # Pretrained ResNet-18 encoder
-        resnet = models.resnet18(pretrained=True)
+        try:
+            resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        except:
+            resnet = models.resnet18(pretrained=True)
         self.encoder = nn.Sequential(*list(resnet.children())[:-2])  # Remove FC layers
         
         # Classification head
@@ -81,6 +87,13 @@ class MultiTaskResNet18(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(256, num_classes)
         )
+        
+        # Initialize classification head properly
+        for m in self.cls_head.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
         
         # Segmentation head (decoder)
         self.seg_head = nn.Sequential(
@@ -111,6 +124,16 @@ class MultiTaskResNet18(nn.Module):
             
             nn.Conv2d(16, num_seg_classes, 1)
         )
+        
+        # Initialize segmentation head properly
+        for m in self.seg_head.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x, task='both'):
         features = self.encoder(x)

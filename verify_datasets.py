@@ -32,9 +32,9 @@ def verify_imagenet():
     
     # Try loading dataset
     try:
-        print("\n🔄 Loading ImageNet dataset (500 classes, 50000 images)...")
+        print("\n🔄 Loading ImageNet dataset (1000 classes, 10000 images)...")
         transform = get_transforms('train')
-        dataset = ImageNetDataset(base_path, 'train', transform, subset_size=50000)
+        dataset = ImageNetDataset(base_path, 'train', transform, subset_size=10000)
         
         # Test dataloader
         print("🔄 Testing DataLoader...")
@@ -97,12 +97,12 @@ def verify_coco():
     
     # Try loading dataset
     try:
-        print("\n🔄 Loading COCO train dataset (50000 images)...")
+        print("\n🔄 Loading COCO train dataset (10000 images)...")
         transform = get_transforms('train')
-        train_dataset = COCOSegmentationDataset(base_path, 'train', transform, subset_size=50000)
+        train_dataset = COCOSegmentationDataset(base_path, 'train', transform, subset_size=10000)
         
-        print("🔄 Loading COCO val dataset (5000 images)...")
-        val_dataset = COCOSegmentationDataset(base_path, 'val', get_transforms('val'), subset_size=5000)
+        print("🔄 Loading COCO val dataset (1000 images)...")
+        val_dataset = COCOSegmentationDataset(base_path, 'val', get_transforms('val'), subset_size=1000)
         
         # Test dataloader
         print("🔄 Testing DataLoader...")

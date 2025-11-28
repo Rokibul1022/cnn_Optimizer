@@ -3,8 +3,8 @@ import torch
 from torch.optim import Adam
 
 class MTAdamV2(Adam):
-    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, num_tasks=2):
-        super().__init__(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+    def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0, num_tasks=2, amsgrad=False):
+        super().__init__(params, lr=lr, betas=betas, eps=eps, weight_decay=weight_decay, amsgrad=amsgrad)
         self.num_tasks = num_tasks
         self.task_weights = torch.ones(num_tasks) / num_tasks
     
