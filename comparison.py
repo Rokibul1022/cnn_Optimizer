@@ -278,10 +278,29 @@ def generate_best_configurations(results):
     print(f"   Accuracy: {best_eff['final_val_acc']:.2f}%")
     print(f"   Time: {best_eff['avg_epoch_time']:.2f}s/epoch")
     
+    # Best optimizer per model
+    mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
+    resnet_results = [r for r in results if r['model'] == 'resnet18']
+    
+    if mobilenet_results:
+        best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
+        print(f"\n🥇 Best for MobileNetV3: {best_mobilenet['optimizer']}")
+        print(f"   Accuracy: {best_mobilenet['final_val_acc']:.2f}%")
+        print(f"   mIoU: {best_mobilenet['final_val_miou']:.4f}")
+        print(f"   Time: {best_mobilenet['avg_epoch_time']:.2f}s/epoch")
+    
+    if resnet_results:
+        best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
+        print(f"\n🥇 Best for ResNet-18: {best_resnet['optimizer']}")
+        print(f"   Accuracy: {best_resnet['final_val_acc']:.2f}%")
+        print(f"   mIoU: {best_resnet['final_val_miou']:.4f}")
+        print(f"   Time: {best_resnet['avg_epoch_time']:.2f}s/epoch")
+    
     print("="*70 + "\n")
 
 def save_summary_report(results, table_data, headers):
-    """Save comprehensive text report"""
+    """Save comprehensive text and image report"""
+    # Text report
     with open('results/summary_report.txt', 'w') as f:
         f.write("="*70 + "\n")
         f.write("MULTI-TASK LEARNING BENCHMARK REPORT\n")
@@ -316,8 +335,87 @@ def save_summary_report(results, table_data, headers):
         
         f.write(f"Fastest: {fastest['avg_epoch_time']:.2f}s/epoch\n")
         f.write(f"  Config: {fastest['model']} + {fastest['optimizer']} (BS={fastest['batch_size']})\n\n")
+        
+        # Best per model
+        mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
+        resnet_results = [r for r in results if r['model'] == 'resnet18']
+        
+        if mobilenet_results:
+            best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
+            f.write(f"Best for MobileNetV3: {best_mobilenet['optimizer']}\n")
+            f.write(f"  Accuracy: {best_mobilenet['final_val_acc']:.2f}%\n")
+            f.write(f"  mIoU: {best_mobilenet['final_val_miou']:.4f}\n")
+            f.write(f"  Time: {best_mobilenet['avg_epoch_time']:.2f}s/epoch\n\n")
+        
+        if resnet_results:
+            best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
+            f.write(f"Best for ResNet-18: {best_resnet['optimizer']}\n")
+            f.write(f"  Accuracy: {best_resnet['final_val_acc']:.2f}%\n")
+            f.write(f"  mIoU: {best_resnet['final_val_miou']:.4f}\n")
+            f.write(f"  Time: {best_resnet['avg_epoch_time']:.2f}s/epoch\n\n")
     
     print("✓ Saved: results/summary_report.txt")
+    
+    # Image report
+    fig = plt.figure(figsize=(16, 12))
+    fig.suptitle('Multi-Task Learning Benchmark Report\nImageNet Classification + COCO2017 Segmentation', 
+                 fontsize=16, fontweight='bold', y=0.98)
+    
+    # Summary stats
+    ax1 = plt.subplot(4, 1, 1)
+    ax1.axis('off')
+    summary_text = f"""Total Experiments: {len(results)}  |  Models: {len(set(r['model'] for r in results))}  |  Optimizers: {len(set(r['optimizer'] for r in results))}  |  Batch Sizes: {sorted(set(r['batch_size'] for r in results))}"""
+    ax1.text(0.5, 0.5, summary_text, ha='center', va='center', fontsize=12, bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.5))
+    
+    # Summary table
+    ax2 = plt.subplot(4, 1, 2)
+    ax2.axis('tight')
+    ax2.axis('off')
+    table = ax2.table(cellText=table_data, colLabels=headers, cellLoc='center', loc='center', 
+                      colWidths=[0.12, 0.12, 0.1, 0.08, 0.1, 0.1, 0.15, 0.13])
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1, 2)
+    for i in range(len(headers)):
+        table[(0, i)].set_facecolor('#4CAF50')
+        table[(0, i)].set_text_props(weight='bold', color='white')
+    
+    # Best configurations
+    ax3 = plt.subplot(4, 1, 3)
+    ax3.axis('off')
+    best_text = f"""BEST CONFIGURATIONS
+
+Best Accuracy: {best_acc['final_val_acc']:.2f}%  →  {best_acc['model']} + {best_acc['optimizer']} (BS={best_acc['batch_size']})
+
+Best mIoU: {best_miou['final_val_miou']:.4f}  →  {best_miou['model']} + {best_miou['optimizer']} (BS={best_miou['batch_size']})
+
+Fastest: {fastest['avg_epoch_time']:.2f}s/epoch  →  {fastest['model']} + {fastest['optimizer']} (BS={fastest['batch_size']})"""
+    ax3.text(0.5, 0.5, best_text, ha='center', va='center', fontsize=11, 
+             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.7), family='monospace')
+    
+    # Best per model
+    ax4 = plt.subplot(4, 1, 4)
+    ax4.axis('off')
+    mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
+    resnet_results = [r for r in results if r['model'] == 'resnet18']
+    
+    model_text = "BEST OPTIMIZER PER MODEL\n\n"
+    if mobilenet_results:
+        best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
+        model_text += f"MobileNetV3: {best_mobilenet['optimizer']}  →  Acc: {best_mobilenet['final_val_acc']:.2f}%  |  mIoU: {best_mobilenet['final_val_miou']:.4f}  |  Time: {best_mobilenet['avg_epoch_time']:.2f}s\n\n"
+    
+    if resnet_results:
+        best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
+        model_text += f"ResNet-18: {best_resnet['optimizer']}  →  Acc: {best_resnet['final_val_acc']:.2f}%  |  mIoU: {best_resnet['final_val_miou']:.4f}  |  Time: {best_resnet['avg_epoch_time']:.2f}s"
+    
+    ax4.text(0.5, 0.5, model_text, ha='center', va='center', fontsize=11,
+             bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7), family='monospace')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    plt.savefig('results/summary_report.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print("✓ Saved: results/summary_report.png")
 
 def main():
     print("\n" + "="*70)
