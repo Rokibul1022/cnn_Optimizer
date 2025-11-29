@@ -108,7 +108,6 @@ def plot_optimizer_comparison(results):
     
     plt.tight_layout()
     plt.savefig('results/optimizer_comparison.png', dpi=150, bbox_inches='tight')
-    print("✓ Saved: results/optimizer_comparison.png")
     plt.close()
 
 def plot_batch_size_comparison(results):
@@ -207,7 +206,6 @@ def plot_model_comparison(results):
     
     plt.tight_layout()
     plt.savefig('results/model_comparison.png', dpi=150, bbox_inches='tight')
-    print("✓ Saved: results/model_comparison.png")
     plt.close()
 
 def plot_convergence_curves(results):
@@ -237,7 +235,6 @@ def plot_convergence_curves(results):
     
     plt.tight_layout()
     plt.savefig('results/convergence_curves.png', dpi=150, bbox_inches='tight')
-    print("✓ Saved: results/convergence_curves.png")
     plt.close()
 
 def generate_best_configurations(results):
@@ -354,8 +351,6 @@ def save_summary_report(results, table_data, headers):
             f.write(f"  mIoU: {best_resnet['final_val_miou']:.4f}\n")
             f.write(f"  Time: {best_resnet['avg_epoch_time']:.2f}s/epoch\n\n")
     
-    print("✓ Saved: results/summary_report.txt")
-    
     # Image report
     fig = plt.figure(figsize=(16, 12))
     fig.suptitle('Multi-Task Learning Benchmark Report\nImageNet Classification + COCO2017 Segmentation', 
@@ -423,39 +418,75 @@ def main():
     print("="*70)
     
     # Load all results
-    results = load_all_results()
+    all_results = load_all_results()
     
-    if not results:
+    if not all_results:
         print("\n❌ No results found. Please run training first using train_interactive.py")
         return
     
-    print(f"\n✓ Loaded {len(results)} experiment results\n")
+    print(f"\n✓ Loaded {len(all_results)} experiment results\n")
     
-    # Generate summary table
-    table_data, headers = generate_summary_table(results)
+    # Group by batch size
+    batch_groups = {}
+    for r in all_results:
+        bs = r['batch_size']
+        if bs not in batch_groups:
+            batch_groups[bs] = []
+        batch_groups[bs].append(r)
     
-    # Generate all comparison plots
-    print("📈 Generating comparison plots...")
-    plot_optimizer_comparison(results)
-    plot_batch_size_comparison(results)
-    plot_model_comparison(results)
-    plot_convergence_curves(results)
+    # Process each batch size separately
+    for batch_size in sorted(batch_groups.keys()):
+        results = batch_groups[batch_size]
+        print(f"\n{'='*70}")
+        print(f"📦 BATCH SIZE {batch_size} - {len(results)} experiments")
+        print(f"{'='*70}\n")
+        
+        # Generate summary table
+        table_data, headers = generate_summary_table(results)
+        
+        # Generate comparison plots for this batch size
+        print(f"📈 Generating comparison plots for batch size {batch_size}...")
+        
+        # Optimizer comparison
+        if len(set(r['optimizer'] for r in results)) >= 2:
+            plot_optimizer_comparison(results)
+            os.rename('results/optimizer_comparison.png', f'results/batch{batch_size}_optimizer_comparison.png')
+            print(f"✓ Saved: results/batch{batch_size}_optimizer_comparison.png")
+        
+        # Model comparison
+        if len(set(r['model'] for r in results)) >= 2:
+            plot_model_comparison(results)
+            os.rename('results/model_comparison.png', f'results/batch{batch_size}_model_comparison.png')
+            print(f"✓ Saved: results/batch{batch_size}_model_comparison.png")
+        
+        # Convergence curves
+        plot_convergence_curves(results)
+        os.rename('results/convergence_curves.png', f'results/batch{batch_size}_convergence_curves.png')
+        print(f"✓ Saved: results/batch{batch_size}_convergence_curves.png")
+        
+        # Best configurations
+        generate_best_configurations(results)
+        
+        # Save report
+        save_summary_report(results, table_data, headers)
+        os.rename('results/summary_report.txt', f'results/batch{batch_size}_summary_report.txt')
+        os.rename('results/summary_report.png', f'results/batch{batch_size}_summary_report.png')
+        print(f"✓ Saved: results/batch{batch_size}_summary_report.txt")
+        print(f"✓ Saved: results/batch{batch_size}_summary_report.png")
     
-    # Best configurations
-    generate_best_configurations(results)
-    
-    # Save report
-    save_summary_report(results, table_data, headers)
+    # Generate batch size comparison if multiple batch sizes exist
+    if len(batch_groups) >= 2:
+        print(f"\n{'='*70}")
+        print("📊 CROSS-BATCH SIZE COMPARISON")
+        print(f"{'='*70}\n")
+        plot_batch_size_comparison(all_results)
     
     print("\n" + "="*70)
     print("✅ Analysis Complete!")
     print("="*70)
-    print("Generated files in results/:")
-    print("  - optimizer_comparison.png")
-    print("  - batch_size_comparison.png")
-    print("  - model_comparison.png")
-    print("  - convergence_curves.png")
-    print("  - summary_report.txt")
+    print(f"Generated separate reports for {len(batch_groups)} batch size(s)")
+    for bs in sorted(batch_groups.keys()):
+        print(f"  Batch {bs}: {len(batch_groups[bs])} experiments")
     print("="*70 + "\n")
 
 if __name__ == '__main__':

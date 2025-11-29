@@ -11,11 +11,19 @@ import matplotlib.pyplot as plt
 
 from models import MultiTaskMobileNetV3, MultiTaskResNet18
 from datasets import ImageNetDataset, COCOSegmentationDataset, get_transforms
-from mtadam_v2 import MTAdamV2
+from optimizer_configs import OptimizerConfig
 from utils import compute_miou
 
-device = torch.device('mps' if torch.backends.mps.is_available() else 
-                     'cuda' if torch.cuda.is_available() else 'cpu')
+# Auto-detect device: CUDA (NVIDIA) > MPS (Apple) > CPU
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+    print(f"Using CUDA: {torch.cuda.get_device_name(0)}")
+elif torch.backends.mps.is_available():
+    device = torch.device('mps')
+    print("Using MPS (Apple Silicon)")
+else:
+    device = torch.device('cpu')
+    print("Using CPU")
 
 OPTIMIZERS = {
     '1': ('SGD', 'sgd'),
@@ -28,7 +36,7 @@ OPTIMIZERS = {
     '8': ('MTAdamV2', 'mtadamv2')
 }
 
-def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_criterion, use_mtadam=False, model_name='mobilenetv3', optimizer_name='adam'):
+def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_criterion, model_name='mobilenetv3', optimizer_name='adam'):
     model.train()
     total_loss = 0
     cls_correct = 0
@@ -58,26 +66,24 @@ def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_cri
         cls_loss = cls_criterion(cls_out, cls_labels)
         seg_loss = seg_criterion(seg_out, seg_masks)
         
-        # Task-balanced loss for RMSProp, Adagrad, Adadelta, and MTAdamV2
-        if optimizer_name in ['rmsprop', 'adagrad', 'adadelta']:
-            combined_loss = 0.7 * cls_loss + 0.3 * seg_loss
-        elif optimizer_name == 'mtadamv2':
+        # Get loss configuration
+        loss_config = OptimizerConfig.get_loss_config(optimizer_name, model_name)
+        
+        if loss_config['type'] == 'weighted':
+            combined_loss = loss_config['cls_weight'] * cls_loss + loss_config['seg_weight'] * seg_loss
+        elif loss_config['type'] == 'mtadam':
             combined_loss = optimizer.get_combined_loss(torch.stack([cls_loss, seg_loss]))
-        # Normalize losses for ResNet-18 with adaptive optimizers
-        elif model_name == 'resnet18' and optimizer_name in ['adam', 'adamw']:
-            cls_loss_scaled = cls_loss * 0.01
-            seg_loss_scaled = seg_loss * 1.0
-            combined_loss = cls_loss_scaled + seg_loss_scaled
+        elif loss_config['type'] == 'scaled':
+            combined_loss = loss_config['cls_scale'] * cls_loss + loss_config['seg_scale'] * seg_loss
         else:
             combined_loss = cls_loss + seg_loss
         
         combined_loss.backward()
         
-        # Gradient clipping for RMSProp, Adagrad, Adadelta, and MTAdamV2 (always) and ResNet-18 with adaptive optimizers
-        if optimizer_name in ['rmsprop', 'adagrad', 'adadelta', 'mtadamv2']:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        elif model_name == 'resnet18' and optimizer_name in ['adam', 'adamw']:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+        # Gradient clipping
+        grad_config = OptimizerConfig.get_grad_clip_config(optimizer_name, model_name)
+        if grad_config['enabled']:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_config['max_norm'])
         
         optimizer.step()
         
@@ -232,31 +238,10 @@ def main():
     print("\n🔄 SELECT EPOCHS:")
     epochs = int(input("Enter number of epochs: ").strip())
     
-    # Set optimal learning rate per optimizer and model
-    if model_name == 'resnet18':
-        lr_map = {
-            'sgd': 0.01,           # Momentum-based, validated: 35.9% acc
-            'sgd_nesterov': 0.01,  # Momentum-based, validated: 46.4% acc
-            'adam': 0.001,         # Adaptive with momentum
-            'adamw': 0.001,        # Adaptive with momentum + weight decay
-            'rmsprop': 0.0001,     # RMSProp needs very low LR for multi-task
-            'adagrad': 0.0001,     # Adagrad needs very low LR for multi-task
-            'adadelta': 0.1,       # Adadelta needs lower initial LR for multi-task
-            'mtadamv2': 0.0003     # MTAdamV2 needs low LR (3e-4)
-        }
-    else:  # MobileNetV3
-        lr_map = {
-            'sgd': 0.01,           # Momentum-based, standard
-            'sgd_nesterov': 0.01,  # Momentum-based, standard
-            'adam': 0.001,         # Adaptive, validated: 83.4% acc
-            'adamw': 0.001,        # Adaptive with weight decay
-            'rmsprop': 0.0001,     # RMSProp needs very low LR
-            'adagrad': 0.0001,     # Adagrad needs very low LR for multi-task
-            'adadelta': 0.1,       # Adadelta needs lower initial LR for multi-task
-            'mtadamv2': 0.0003     # MTAdamV2 needs low LR (3e-4)
-        }
-    lr = lr_map[optimizer_name]
-    print(f"\n📈 LEARNING RATE: {lr} (optimized for {optimizer_display})")
+    # Get learning rate from config
+    config = OptimizerConfig.get_config(optimizer_name, model_name, batch_size)
+    lr = config['lr']
+    print(f"\n📈 LEARNING RATE: {lr} (optimized for {optimizer_display}, batch size {batch_size})")
     
     print("\n" + "="*70)
     print(f"Configuration:")
@@ -278,34 +263,23 @@ def main():
     coco_train = COCOSegmentationDataset('datasets/coco 2017', 'train', train_transform, subset_size=10000)
     coco_val = COCOSegmentationDataset('datasets/coco 2017', 'val', val_transform, subset_size=1000)
     
-    cls_train_loader = DataLoader(imagenet_train, batch_size=batch_size, shuffle=True, num_workers=2)
-    cls_val_loader = DataLoader(imagenet_val, batch_size=batch_size, shuffle=False, num_workers=2)
-    seg_train_loader = DataLoader(coco_train, batch_size=batch_size, shuffle=True, num_workers=2)
-    seg_val_loader = DataLoader(coco_val, batch_size=batch_size, shuffle=False, num_workers=2)
+    # Adjust num_workers based on device and batch size
+    if device.type == 'cuda':
+        num_workers = 8 if batch_size >= 32 else 4  # RTX 3060 can handle more workers
+    else:
+        num_workers = 2 if batch_size >= 32 else (4 if batch_size >= 16 else 2)  # MPS/CPU limited
+    cls_train_loader = DataLoader(imagenet_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    cls_val_loader = DataLoader(imagenet_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    seg_train_loader = DataLoader(coco_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    seg_val_loader = DataLoader(coco_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     
     # Create model
     print(f"\n🏗️  Creating {model_name} model...")
     model = model_class(num_classes=100, num_seg_classes=21).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
-    # Create optimizer with tuned hyperparameters
-    if optimizer_name == 'sgd':
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=1e-4)
-    elif optimizer_name == 'sgd_nesterov':
-        optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=1e-4)
-    elif optimizer_name == 'adam':
-        # Pure Adam - no modifications
-        optimizer = optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.999), eps=1e-8)
-    elif optimizer_name == 'adamw':
-        optimizer = optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=0.01)
-    elif optimizer_name == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters(), lr=lr, alpha=0.99, eps=1e-8, momentum=0.3, weight_decay=1e-6)
-    elif optimizer_name == 'adagrad':
-        optimizer = optim.Adagrad(model.parameters(), lr=lr, lr_decay=0, eps=1e-8, weight_decay=0)
-    elif optimizer_name == 'adadelta':
-        optimizer = optim.Adadelta(model.parameters(), lr=lr, rho=0.95, eps=1e-6, weight_decay=0)
-    elif optimizer_name == 'mtadamv2':
-        optimizer = MTAdamV2(model.parameters(), lr=lr, num_tasks=2, betas=(0.9, 0.999), weight_decay=1e-6)
+    # Create optimizer using centralized config
+    optimizer = OptimizerConfig.create_optimizer(optimizer_name, model.parameters(), model_name, batch_size)
     
     cls_criterion = nn.CrossEntropyLoss()
     seg_criterion = nn.CrossEntropyLoss(ignore_index=0)
@@ -320,7 +294,6 @@ def main():
         
         train_metrics = train_epoch(model, cls_train_loader, seg_train_loader, 
                                     optimizer, cls_criterion, seg_criterion, 
-                                    use_mtadam=(optimizer_name=='mtadamv2'),
                                     model_name=model_name, optimizer_name=optimizer_name)
         val_metrics = validate(model, cls_val_loader, seg_val_loader, cls_criterion, seg_criterion)
         
