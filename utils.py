@@ -1,23 +1,26 @@
 """Utility functions for metrics and visualization"""
 import torch
 
-def compute_miou(pred, target, num_classes=21):
+def compute_miou(pred, target, num_classes=50, ignore_index=255):
     """Compute mean Intersection over Union"""
     ious = []
     pred = pred.view(-1)
     target = target.view(-1)
     
-    for cls in range(1, num_classes):  # Skip background
-        pred_inds = pred == cls
-        target_inds = target == cls
+    # Remove ignore_index pixels
+    valid_mask = target != ignore_index
+    pred = pred[valid_mask]
+    target = target[valid_mask]
+    
+    for cls in range(num_classes):
+        pred_inds = (pred == cls)
+        target_inds = (target == cls)
         intersection = (pred_inds & target_inds).sum().float()
         union = (pred_inds | target_inds).sum().float()
         
-        if union == 0:
-            continue
-        
-        iou = intersection / union
-        ious.append(iou.item())
+        if union > 0:
+            iou = (intersection / union).item()
+            ious.append(iou)
     
     return sum(ious) / len(ious) if ious else 0.0
 

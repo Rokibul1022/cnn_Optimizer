@@ -17,13 +17,10 @@ from utils import compute_miou
 # Auto-detect device: CUDA (NVIDIA) > MPS (Apple) > CPU
 if torch.cuda.is_available():
     device = torch.device('cuda')
-    print(f"Using CUDA: {torch.cuda.get_device_name(0)}")
 elif torch.backends.mps.is_available():
     device = torch.device('mps')
-    print("Using MPS (Apple Silicon)")
 else:
     device = torch.device('cpu')
-    print("Using CPU")
 
 OPTIMIZERS = {
     '1': ('SGD', 'sgd'),
@@ -66,7 +63,7 @@ def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_cri
         cls_loss = cls_criterion(cls_out, cls_labels)
         seg_loss = seg_criterion(seg_out, seg_masks)
         
-        # Get loss configuration
+        # Get loss configuration - weight segmentation 5x more
         loss_config = OptimizerConfig.get_loss_config(optimizer_name, model_name)
         
         if loss_config['type'] == 'weighted':
@@ -76,7 +73,7 @@ def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_cri
         elif loss_config['type'] == 'scaled':
             combined_loss = loss_config['cls_scale'] * cls_loss + loss_config['seg_scale'] * seg_loss
         else:
-            combined_loss = cls_loss + seg_loss
+            combined_loss = cls_loss + 5.0 * seg_loss
         
         combined_loss.backward()
         
@@ -93,7 +90,7 @@ def train_epoch(model, cls_loader, seg_loader, optimizer, cls_criterion, seg_cri
         cls_correct += predicted.eq(cls_labels).sum().item()
         
         seg_pred = seg_out.argmax(1)
-        miou = compute_miou(seg_pred, seg_masks, num_classes=21)
+        miou = compute_miou(seg_pred, seg_masks, num_classes=60)
         seg_ious.append(miou)
         
         pbar.set_postfix({'loss': f'{combined_loss.item():.4f}', 
@@ -141,7 +138,7 @@ def validate(model, cls_loader, seg_loader, cls_criterion, seg_criterion):
             cls_correct += predicted.eq(cls_labels).sum().item()
             
             seg_pred = seg_out.argmax(1)
-            miou = compute_miou(seg_pred, seg_masks, num_classes=21)
+            miou = compute_miou(seg_pred, seg_masks, num_classes=60)
             seg_ious.append(miou)
     
     return {
@@ -250,7 +247,7 @@ def main():
     print(f"  Batch Size: {batch_size}")
     print(f"  Epochs: {epochs}")
     print(f"  Learning Rate: {lr}")
-    print(f"  Device: {device}")
+    print(f"  Device: {device.type.upper()}")
     print("="*70)
     
     # Load datasets
@@ -258,25 +255,22 @@ def main():
     train_transform = get_transforms('train')
     val_transform = get_transforms('val')
     
-    imagenet_train = ImageNetDataset('datasets/imageNet', 'train', train_transform, subset_size=10000)
-    imagenet_val = ImageNetDataset('datasets/imageNet', 'val', val_transform, subset_size=2000)
-    coco_train = COCOSegmentationDataset('datasets/coco 2017', 'train', train_transform, subset_size=10000)
-    coco_val = COCOSegmentationDataset('datasets/coco 2017', 'val', val_transform, subset_size=1000)
+    imagenet_train = ImageNetDataset('datasets/imageNet', 'train', train_transform, subset_size=250000)
+    imagenet_val = ImageNetDataset('datasets/imageNet', 'val', val_transform, subset_size=50000)
+    coco_train = COCOSegmentationDataset('datasets/coco 2017', 'train', train_transform, subset_size=250000)
+    coco_val = COCOSegmentationDataset('datasets/coco 2017', 'val', val_transform, subset_size=50000)
     
-    # Adjust num_workers based on device and batch size
-    if device.type == 'cuda':
-        num_workers = 8 if batch_size >= 32 else 4  # RTX 3060 can handle more workers
-    else:
-        num_workers = 2 if batch_size >= 32 else (4 if batch_size >= 16 else 2)  # MPS/CPU limited
-    cls_train_loader = DataLoader(imagenet_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    cls_val_loader = DataLoader(imagenet_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    seg_train_loader = DataLoader(coco_train, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    seg_val_loader = DataLoader(coco_val, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    # Set num_workers to 0 on Windows to avoid multiprocessing issues
+    cls_train_loader = DataLoader(imagenet_train, batch_size=batch_size, shuffle=True, num_workers=0)
+    cls_val_loader = DataLoader(imagenet_val, batch_size=batch_size, shuffle=False, num_workers=0)
+    seg_train_loader = DataLoader(coco_train, batch_size=batch_size, shuffle=True, num_workers=0)
+    seg_val_loader = DataLoader(coco_val, batch_size=batch_size, shuffle=False, num_workers=0)
     
     # Create model
     print(f"\n🏗️  Creating {model_name} model...")
-    model = model_class(num_classes=100, num_seg_classes=21).to(device)
+    model = model_class(num_classes=1000, num_seg_classes=60).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Device: {device.type.upper()} - {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
     
     # Create optimizer using centralized config
     optimizer = OptimizerConfig.create_optimizer(optimizer_name, model.parameters(), model_name, batch_size)

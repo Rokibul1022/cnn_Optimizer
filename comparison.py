@@ -34,12 +34,12 @@ def generate_summary_table(results):
             r['batch_size'],
             r['epochs'],
             f"{r['final_val_acc']:.2f}%",
-            f"{r['final_val_miou']:.4f}",
-            f"{r['avg_epoch_time']:.2f}s",
-            f"{r['total_time']:.2f}s"
+            f"{r.get('final_val_miou', 0)*100:.2f}%",
+            f"{r.get('best_val_acc', r['final_val_acc']):.2f}%",
+            f"{r.get('best_val_miou', r.get('final_val_miou', 0))*100:.2f}%"
         ])
     
-    headers = ['Model', 'Optimizer', 'Batch Size', 'Epochs', 'Val Acc', 'Val mIoU', 'Avg Time/Epoch', 'Total Time']
+    headers = ['Model', 'Optimizer', 'Batch Size', 'Epochs', 'Final Acc', 'Final mIoU', 'Best Acc', 'Best mIoU']
     
     print("\n" + "="*120)
     print("PERFORMANCE COMPARISON TABLE")
@@ -86,24 +86,24 @@ def plot_optimizer_comparison(results):
     axes[0, 1].set_title('Average Final Validation mIoU by Optimizer')
     axes[0, 1].grid(True, alpha=0.3)
     
-    # 3. Training Time Comparison
-    times = [np.mean([r['avg_epoch_time'] for r in optimizer_groups[opt]]) for opt in optimizers]
+    # 3. Best Accuracy Comparison
+    best_accs = [np.mean([r.get('best_val_acc', r['final_val_acc']) for r in optimizer_groups[opt]]) for opt in optimizers]
     
-    axes[1, 0].bar(range(len(optimizers)), times, color='lightgreen')
+    axes[1, 0].bar(range(len(optimizers)), best_accs, color='lightgreen')
     axes[1, 0].set_xticks(range(len(optimizers)))
     axes[1, 0].set_xticklabels(optimizers, rotation=45, ha='right')
-    axes[1, 0].set_ylabel('Time (seconds)')
-    axes[1, 0].set_title('Average Time per Epoch by Optimizer')
+    axes[1, 0].set_ylabel('Best Accuracy (%)')
+    axes[1, 0].set_title('Best Validation Accuracy by Optimizer')
     axes[1, 0].grid(True, alpha=0.3)
     
-    # 4. Efficiency Score (Accuracy / Time)
-    efficiency = [accuracies[i] / times[i] if times[i] > 0 else 0 for i in range(len(optimizers))]
+    # 4. Best mIoU Comparison
+    best_mious = [np.mean([r.get('best_val_miou', r.get('final_val_miou', 0)) for r in optimizer_groups[opt]]) for opt in optimizers]
     
-    axes[1, 1].bar(range(len(optimizers)), efficiency, color='mediumpurple')
+    axes[1, 1].bar(range(len(optimizers)), best_mious, color='mediumpurple')
     axes[1, 1].set_xticks(range(len(optimizers)))
     axes[1, 1].set_xticklabels(optimizers, rotation=45, ha='right')
-    axes[1, 1].set_ylabel('Efficiency (Acc% / Time)')
-    axes[1, 1].set_title('Training Efficiency by Optimizer')
+    axes[1, 1].set_ylabel('Best mIoU')
+    axes[1, 1].set_title('Best Validation mIoU by Optimizer')
     axes[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -175,33 +175,37 @@ def plot_model_comparison(results):
     
     models = list(model_groups.keys())
     accuracies = [np.mean([r['final_val_acc'] for r in model_groups[m]]) for m in models]
-    mious = [np.mean([r['final_val_miou'] for r in model_groups[m]]) for m in models]
-    times = [np.mean([r['avg_epoch_time'] for r in model_groups[m]]) for m in models]
+    mious = [np.mean([r.get('final_val_miou', 0)*100 for r in model_groups[m]]) for m in models]
+    best_accs = [np.mean([r.get('best_val_acc', r['final_val_acc']) for r in model_groups[m]]) for m in models]
     
     x = range(len(models))
+    width = 0.35
     
     # Accuracy
-    axes[0].bar(x, accuracies, color='steelblue')
+    axes[0].bar([i-width/2 for i in x], accuracies, width, color='steelblue', label='Final')
+    axes[0].bar([i+width/2 for i in x], best_accs, width, color='darkblue', label='Best')
     axes[0].set_xticks(x)
     axes[0].set_xticklabels(models)
     axes[0].set_ylabel('Validation Accuracy (%)')
     axes[0].set_title('Model Accuracy Comparison')
+    axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
     # mIoU
     axes[1].bar(x, mious, color='coral')
     axes[1].set_xticks(x)
     axes[1].set_xticklabels(models)
-    axes[1].set_ylabel('mIoU')
+    axes[1].set_ylabel('mIoU (%)')
     axes[1].set_title('Model mIoU Comparison')
     axes[1].grid(True, alpha=0.3)
     
-    # Time
-    axes[2].bar(x, times, color='lightgreen')
+    # Convergence
+    conv_epochs = [np.mean([r.get('convergence_epoch_acc', r['epochs']) for r in model_groups[m]]) for m in models]
+    axes[2].bar(x, conv_epochs, color='lightgreen')
     axes[2].set_xticks(x)
     axes[2].set_xticklabels(models)
-    axes[2].set_ylabel('Time per Epoch (s)')
-    axes[2].set_title('Model Training Time Comparison')
+    axes[2].set_ylabel('Epochs to 85% Accuracy')
+    axes[2].set_title('Model Convergence Speed')
     axes[2].grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -257,23 +261,13 @@ def generate_best_configurations(results):
     print(f"   Optimizer: {best_miou['optimizer']}")
     print(f"   Batch Size: {best_miou['batch_size']}")
     
-    # Fastest training
-    fastest = min(results, key=lambda x: x['avg_epoch_time'])
-    print(f"\n⚡ Fastest Training: {fastest['avg_epoch_time']:.2f}s/epoch")
-    print(f"   Model: {fastest['model']}")
-    print(f"   Optimizer: {fastest['optimizer']}")
-    print(f"   Batch Size: {fastest['batch_size']}")
-    
-    # Best efficiency (accuracy per second)
-    for r in results:
-        r['efficiency'] = r['final_val_acc'] / r['avg_epoch_time']
-    best_eff = max(results, key=lambda x: x['efficiency'])
-    print(f"\n🎯 Best Efficiency: {best_eff['efficiency']:.2f} (Acc%/s)")
-    print(f"   Model: {best_eff['model']}")
-    print(f"   Optimizer: {best_eff['optimizer']}")
-    print(f"   Batch Size: {best_eff['batch_size']}")
-    print(f"   Accuracy: {best_eff['final_val_acc']:.2f}%")
-    print(f"   Time: {best_eff['avg_epoch_time']:.2f}s/epoch")
+    # Fastest convergence
+    fastest_conv = min(results, key=lambda x: x.get('convergence_epoch_acc', float('inf')))
+    print(f"\n⚡ Fastest Convergence: {fastest_conv.get('convergence_epoch_acc', 'N/A')} epochs")
+    print(f"   Model: {fastest_conv['model']}")
+    print(f"   Optimizer: {fastest_conv['optimizer']}")
+    print(f"   Batch Size: {fastest_conv['batch_size']}")
+    print(f"   Final Accuracy: {fastest_conv['final_val_acc']:.2f}%")
     
     # Best optimizer per model
     mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
@@ -283,15 +277,15 @@ def generate_best_configurations(results):
         best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
         print(f"\n🥇 Best for MobileNetV3: {best_mobilenet['optimizer']}")
         print(f"   Accuracy: {best_mobilenet['final_val_acc']:.2f}%")
-        print(f"   mIoU: {best_mobilenet['final_val_miou']:.4f}")
-        print(f"   Time: {best_mobilenet['avg_epoch_time']:.2f}s/epoch")
+        print(f"   mIoU: {best_mobilenet.get('final_val_miou', 0)*100:.2f}%")
+        print(f"   Convergence: {best_mobilenet.get('convergence_epoch_acc', 'N/A')} epochs")
     
     if resnet_results:
         best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
         print(f"\n🥇 Best for ResNet-18: {best_resnet['optimizer']}")
         print(f"   Accuracy: {best_resnet['final_val_acc']:.2f}%")
-        print(f"   mIoU: {best_resnet['final_val_miou']:.4f}")
-        print(f"   Time: {best_resnet['avg_epoch_time']:.2f}s/epoch")
+        print(f"   mIoU: {best_resnet.get('final_val_miou', 0)*100:.2f}%")
+        print(f"   Convergence: {best_resnet.get('convergence_epoch_acc', 'N/A')} epochs")
     
     print("="*70 + "\n")
 
@@ -317,8 +311,7 @@ def save_summary_report(results, table_data, headers):
         
         # Best configurations
         best_acc = max(results, key=lambda x: x['final_val_acc'])
-        best_miou = max(results, key=lambda x: x['final_val_miou'])
-        fastest = min(results, key=lambda x: x['avg_epoch_time'])
+        best_miou = max(results, key=lambda x: x.get('final_val_miou', 0))
         
         f.write("="*70 + "\n")
         f.write("BEST CONFIGURATIONS\n")
@@ -327,29 +320,26 @@ def save_summary_report(results, table_data, headers):
         f.write(f"Best Accuracy: {best_acc['final_val_acc']:.2f}%\n")
         f.write(f"  Config: {best_acc['model']} + {best_acc['optimizer']} (BS={best_acc['batch_size']})\n\n")
         
-        f.write(f"Best mIoU: {best_miou['final_val_miou']:.4f}\n")
+        f.write(f"Best mIoU: {best_miou.get('final_val_miou', 0)*100:.2f}%\n")
         f.write(f"  Config: {best_miou['model']} + {best_miou['optimizer']} (BS={best_miou['batch_size']})\n\n")
         
-        f.write(f"Fastest: {fastest['avg_epoch_time']:.2f}s/epoch\n")
-        f.write(f"  Config: {fastest['model']} + {fastest['optimizer']} (BS={fastest['batch_size']})\n\n")
-        
         # Best per model
-        mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
+        mobilenet_results = [r for r in results if r['model'] == 'mobilenet' or r['model'] == 'mobilenetv3']
         resnet_results = [r for r in results if r['model'] == 'resnet18']
         
         if mobilenet_results:
             best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
             f.write(f"Best for MobileNetV3: {best_mobilenet['optimizer']}\n")
             f.write(f"  Accuracy: {best_mobilenet['final_val_acc']:.2f}%\n")
-            f.write(f"  mIoU: {best_mobilenet['final_val_miou']:.4f}\n")
-            f.write(f"  Time: {best_mobilenet['avg_epoch_time']:.2f}s/epoch\n\n")
+            f.write(f"  mIoU: {best_mobilenet.get('final_val_miou', 0)*100:.2f}%\n")
+            f.write(f"  Convergence: {best_mobilenet.get('convergence_epoch_acc', 'N/A')} epochs\n\n")
         
         if resnet_results:
             best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
             f.write(f"Best for ResNet-18: {best_resnet['optimizer']}\n")
             f.write(f"  Accuracy: {best_resnet['final_val_acc']:.2f}%\n")
-            f.write(f"  mIoU: {best_resnet['final_val_miou']:.4f}\n")
-            f.write(f"  Time: {best_resnet['avg_epoch_time']:.2f}s/epoch\n\n")
+            f.write(f"  mIoU: {best_resnet.get('final_val_miou', 0)*100:.2f}%\n")
+            f.write(f"  Convergence: {best_resnet.get('convergence_epoch_acc', 'N/A')} epochs\n\n")
     
     # Image report
     fig = plt.figure(figsize=(16, 12))
@@ -382,26 +372,24 @@ def save_summary_report(results, table_data, headers):
 
 Best Accuracy: {best_acc['final_val_acc']:.2f}%  →  {best_acc['model']} + {best_acc['optimizer']} (BS={best_acc['batch_size']})
 
-Best mIoU: {best_miou['final_val_miou']:.4f}  →  {best_miou['model']} + {best_miou['optimizer']} (BS={best_miou['batch_size']})
-
-Fastest: {fastest['avg_epoch_time']:.2f}s/epoch  →  {fastest['model']} + {fastest['optimizer']} (BS={fastest['batch_size']})"""
+Best mIoU: {best_miou.get('final_val_miou', 0)*100:.2f}%  →  {best_miou['model']} + {best_miou['optimizer']} (BS={best_miou['batch_size']})"""
     ax3.text(0.5, 0.5, best_text, ha='center', va='center', fontsize=11, 
              bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.7), family='monospace')
     
     # Best per model
     ax4 = plt.subplot(4, 1, 4)
     ax4.axis('off')
-    mobilenet_results = [r for r in results if r['model'] == 'mobilenetv3']
+    mobilenet_results = [r for r in results if r['model'] == 'mobilenet' or r['model'] == 'mobilenetv3']
     resnet_results = [r for r in results if r['model'] == 'resnet18']
     
     model_text = "BEST OPTIMIZER PER MODEL\n\n"
     if mobilenet_results:
         best_mobilenet = max(mobilenet_results, key=lambda x: x['final_val_acc'])
-        model_text += f"MobileNetV3: {best_mobilenet['optimizer']}  →  Acc: {best_mobilenet['final_val_acc']:.2f}%  |  mIoU: {best_mobilenet['final_val_miou']:.4f}  |  Time: {best_mobilenet['avg_epoch_time']:.2f}s\n\n"
+        model_text += f"MobileNetV3: {best_mobilenet['optimizer']}  →  Acc: {best_mobilenet['final_val_acc']:.2f}%  |  mIoU: {best_mobilenet.get('final_val_miou', 0)*100:.2f}%\n\n"
     
     if resnet_results:
         best_resnet = max(resnet_results, key=lambda x: x['final_val_acc'])
-        model_text += f"ResNet-18: {best_resnet['optimizer']}  →  Acc: {best_resnet['final_val_acc']:.2f}%  |  mIoU: {best_resnet['final_val_miou']:.4f}  |  Time: {best_resnet['avg_epoch_time']:.2f}s"
+        model_text += f"ResNet-18: {best_resnet['optimizer']}  →  Acc: {best_resnet['final_val_acc']:.2f}%  |  mIoU: {best_resnet.get('final_val_miou', 0)*100:.2f}%"
     
     ax4.text(0.5, 0.5, model_text, ha='center', va='center', fontsize=11,
              bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7), family='monospace')
@@ -457,12 +445,12 @@ def main():
         if len(set(r['model'] for r in results)) >= 2:
             plot_model_comparison(results)
             os.rename('results/model_comparison.png', f'results/batch{batch_size}_model_comparison.png')
-            print(f"✓ Saved: results/batch{batch_size}_model_comparison.png")
+            print(f"Saved: results/batch{batch_size}_model_comparison.png")
         
         # Convergence curves
         plot_convergence_curves(results)
         os.rename('results/convergence_curves.png', f'results/batch{batch_size}_convergence_curves.png')
-        print(f"✓ Saved: results/batch{batch_size}_convergence_curves.png")
+        print(f" Saved: results/batch{batch_size}_convergence_curves.png")
         
         # Best configurations
         generate_best_configurations(results)
@@ -471,8 +459,8 @@ def main():
         save_summary_report(results, table_data, headers)
         os.rename('results/summary_report.txt', f'results/batch{batch_size}_summary_report.txt')
         os.rename('results/summary_report.png', f'results/batch{batch_size}_summary_report.png')
-        print(f"✓ Saved: results/batch{batch_size}_summary_report.txt")
-        print(f"✓ Saved: results/batch{batch_size}_summary_report.png")
+        print(f" Saved: results/batch{batch_size}_summary_report.txt")
+        print(f"Saved: results/batch{batch_size}_summary_report.png")
     
     # Generate batch size comparison if multiple batch sizes exist
     if len(batch_groups) >= 2:
