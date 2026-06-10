@@ -10,10 +10,14 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-from models import MultiTaskMobileNetV3, MultiTaskResNet18
-from datasets import ImageNetDataset, COCOSegmentationDataset, get_transforms
-from muon import Muon, MTMuon
-from utils import compute_miou
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.models import MultiTaskMobileNetV3, MultiTaskResNet18
+from src.datasets import ImageNetDataset, COCOSegmentationDataset, get_transforms
+from src.muon import Muon, MTMuon
+from src.utils import compute_miou
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
